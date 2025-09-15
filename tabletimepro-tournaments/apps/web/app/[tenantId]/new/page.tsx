@@ -15,14 +15,15 @@
       const [greenFee, setGreenFee] = useState(5);
       const [sponsorAdd, setSponsorAdd] = useState(0);
       const [templateKey, setTemplateKey] = useState<'top3'|'top4'|'top8'>('top4');
-      const [playersText, setPlayersText] = useState('Alice
+const [playersText, setPlayersText] = useState(`Alice
 Bob
 Charlie
 Derek
 Erin
 Frank
 Gina
-Hank');
+Hank`);
+
 
       const players = playersText.split(/\n|,/).map(s=>s.trim()).filter(Boolean);
       const preview = computePayouts({

@@ -1,0 +1,35 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ttpro_tournaments
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+  api:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/ttpro_tournaments
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+volumes:
+  dbdata:

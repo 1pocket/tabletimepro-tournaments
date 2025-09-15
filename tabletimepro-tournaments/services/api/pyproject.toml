@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "ttpro-tournaments-api"
+version = "0.1.0"
+description = "FastAPI service for TableTimePro Tournaments"
+authors = ["TTP"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = {extras = ["all"], version = "^0.115.0"}
+uvicorn = "^0.30.0"
+sqlalchemy = "^2.0.32"
+pydantic = "^2.9.0"
+psycopg2-binary = "^2.9.9"
+alembic = "^1.13.2"
+python-dotenv = "^1.0.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.2"
+ruff = "^0.6.3"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -183,5 +183,65 @@ export function computePayouts(input: PayoutInput): PayoutResult {
     entryPool: +gross.toFixed(2),
     payoutTotal: +net.toFixed(2),
     splits: raw,
+    // ---------- Calcutta ----------
+
+export type CalcuttaBid = { player: string; owner: string; amount: number };
+export type CalcuttaConfig = { rakePct?: number; template: number[] };
+export type CalcuttaPlacements = string[]; // [first, second, third, ...]
+
+export type CalcuttaOwnerPayout = { owner: string; amount: number };
+export type CalcuttaPlayerPayout = { place: number; player: string; owner?: string; share: number; amount: number };
+
+export type CalcuttaResult = {
+  pot: number;
+  rake: number;
+  distributable: number;
+  ownerPayouts: CalcuttaOwnerPayout[];
+  playerPayouts: CalcuttaPlayerPayout[];
+};
+
+export function computeCalcuttaPayouts(
+  bids: CalcuttaBid[],
+  cfg: CalcuttaConfig,
+  placements: CalcuttaPlacements
+): CalcuttaResult {
+  const pot = +(bids.reduce((s, b) => s + (Number(b.amount) || 0), 0)).toFixed(2);
+  const rake = +((pot * ((cfg.rakePct ?? 0) / 100))).toFixed(2);
+  const distributable = +(pot - rake).toFixed(2);
+
+  const template = cfg.template || [];
+  const ownerByPlayer = new Map<string, string>();
+  bids.forEach(b => ownerByPlayer.set((b.player || '').trim(), (b.owner || '').trim()));
+
+  const playerPayouts: CalcuttaPlayerPayout[] = template.map((share, i) => {
+    const place = i + 1;
+    const player = (placements[i] || '').trim();
+    const owner = player ? ownerByPlayer.get(player) : undefined;
+    const amount = +(distributable * share).toFixed(2);
+    return { place, player, owner, share, amount };
+  });
+
+  // sum by owner
+  const ownerMap = new Map<string, number>();
+  for (const p of playerPayouts) {
+    if (!p.owner) continue;
+    ownerMap.set(p.owner, +( (ownerMap.get(p.owner) ?? 0) + p.amount ).toFixed(2));
+  }
+  const ownerPayouts = Array.from(ownerMap.entries()).map(([owner, amount]) => ({ owner, amount }));
+
+  // fix rounding drift to first place if needed
+  const totalAllocated = +playerPayouts.reduce((s, p) => s + p.amount, 0).toFixed(2);
+  const drift = +(distributable - totalAllocated).toFixed(2);
+  if (Math.abs(drift) >= 0.01 && playerPayouts.length > 0) {
+    playerPayouts[0].amount = +(playerPayouts[0].amount + drift).toFixed(2);
+    if (playerPayouts[0].owner) {
+      const cur = ownerMap.get(playerPayouts[0].owner) ?? 0;
+      ownerMap.set(playerPayouts[0].owner, +(cur + drift).toFixed(2));
+    }
+  }
+
+  return { pot, rake, distributable, ownerPayouts, playerPayouts };
+}
+
   };
 }

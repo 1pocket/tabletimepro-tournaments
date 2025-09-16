@@ -12,18 +12,21 @@ type State = {
   players: string[];
 };
 
+function decodeState(param: string | null): State {
+  if (!param || typeof window === "undefined") {
+    return { name: "Tournament", format: "single", buybacks: false, players: [] };
+  }
+  try {
+    const json = decodeURIComponent(atob(decodeURIComponent(param)));
+    return JSON.parse(json);
+  } catch {
+    return { name: "Tournament", format: "single", buybacks: false, players: [] };
+  }
+}
+
 export default function PreviewPage({ params }: { params: { tenantId: string } }) {
   const sp = useSearchParams();
-  const raw = sp.get("state");
-
-  const state = useMemo<State>(() => {
-    if (!raw) return { name: "Tournament", format: "single", buybacks: false, players: [] };
-    try {
-      return JSON.parse(Buffer.from(decodeURIComponent(raw), "base64").toString());
-    } catch {
-      return { name: "Tournament", format: "single", buybacks: false, players: [] };
-    }
-  }, [raw]);
+  const state = useMemo(() => decodeState(sp.get("state")), [sp]);
 
   const bracket = useMemo(() => {
     const opts = { seed: 42, buybacksEnabled: state.buybacks, buybackFee: state.buybackFee };
@@ -33,7 +36,7 @@ export default function PreviewPage({ params }: { params: { tenantId: string } }
   }, [state]);
 
   const winnersByRound = groupByRound(bracket.winners, "W");
-  const losersByRound  = groupByRound(bracket.losers, "L");
+  const losersByRound = groupByRound(bracket.losers, "L");
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 space-y-8">
@@ -96,9 +99,8 @@ function Row({ name }: { name: string }) {
 function groupByRound(matches: any[], side: "W" | "L") {
   const map = new Map<number, any[]>();
   matches
-    .filter(m => m.side === side)
-    .forEach(m => {
-      map.set(m.round, [...(map.get(m.round) ?? []), m]);
-    });
+    .filter((m) => m.side === side)
+    .forEach((m) => map.set(m.round, [...(map.get(m.round) ?? []), m]));
   return map;
 }
+

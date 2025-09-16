@@ -1,4 +1,5 @@
 // packages/core/src/index.ts
+
 export type PlayerId = string;
 
 export type Match = {
@@ -7,6 +8,7 @@ export type Match = {
   side: "W" | "L";            // winners or losers
   p1?: string | null;         // player name or placeholder "TBD" / "— bye —"
   p2?: string | null;
+  winnerSlot?: "p1" | "p2";
 };
 
 export type Bracket = {
@@ -128,7 +130,9 @@ export function drawDoubleElim(playersIn: string[], opts: DrawOptions = {}): Bra
 
   // Subsequent loser rounds are shells (they’ll be filled as results come in)
   for (let r = 2; r <= roundsL; r++) {
-    const prevInRound = losers.filter(m => m.round === r - 1).length || Math.max(1, Math.ceil(l1Slots / Math.pow(2, r - 2)));
+    const prevInRound =
+      losers.filter(m => m.round === r - 1).length ||
+      Math.max(1, Math.ceil(l1Slots / Math.pow(2, r - 2)));
     const count = Math.max(1, Math.ceil(prevInRound / 2));
     for (let m = 1; m <= count; m++) {
       losers.push({ id: `L${r}-M${m}`, round: r, side: "L", p1: "TBD", p2: "TBD" });
@@ -173,24 +177,39 @@ export function computePayouts(input: PayoutInput): PayoutResult {
   const greensTotal = entrants * greenFee;
   const net = Math.max(0, gross - greensTotal) + sponsorAdd;
 
-  const raw = template.map((share, i) => ({ place: i + 1, share, amount: +(net * share).toFixed(2) }));
+  const raw = template.map((share, i) => ({
+    place: i + 1,
+    share,
+    amount: +(net * share).toFixed(2),
+  }));
   const allocated = raw.reduce((s, r) => s + r.amount, 0);
   const drift = +(net - allocated).toFixed(2);
-  if (Math.abs(drift) >= 0.01) raw[0].amount = +(raw[0].amount + drift).toFixed(2);
+  if (Math.abs(drift) >= 0.01 && raw.length > 0) {
+    raw[0].amount = +(raw[0].amount + drift).toFixed(2);
+  }
 
   return {
     greensTotal: +greensTotal.toFixed(2),
     entryPool: +gross.toFixed(2),
     payoutTotal: +net.toFixed(2),
     splits: raw,
-    // ---------- Calcutta ----------
+  };
+}
+
+// ---------- Calcutta ----------
 
 export type CalcuttaBid = { player: string; owner: string; amount: number };
 export type CalcuttaConfig = { rakePct?: number; template: number[] };
 export type CalcuttaPlacements = string[]; // [first, second, third, ...]
 
 export type CalcuttaOwnerPayout = { owner: string; amount: number };
-export type CalcuttaPlayerPayout = { place: number; player: string; owner?: string; share: number; amount: number };
+export type CalcuttaPlayerPayout = {
+  place: number;
+  player: string;
+  owner?: string;
+  share: number;
+  amount: number;
+};
 
 export type CalcuttaResult = {
   pot: number;
@@ -225,7 +244,7 @@ export function computeCalcuttaPayouts(
   const ownerMap = new Map<string, number>();
   for (const p of playerPayouts) {
     if (!p.owner) continue;
-    ownerMap.set(p.owner, +( (ownerMap.get(p.owner) ?? 0) + p.amount ).toFixed(2));
+    ownerMap.set(p.owner, +((ownerMap.get(p.owner) ?? 0) + p.amount).toFixed(2));
   }
   const ownerPayouts = Array.from(ownerMap.entries()).map(([owner, amount]) => ({ owner, amount }));
 
@@ -241,7 +260,4 @@ export function computeCalcuttaPayouts(
   }
 
   return { pot, rake, distributable, ownerPayouts, playerPayouts };
-}
-
-  };
 }

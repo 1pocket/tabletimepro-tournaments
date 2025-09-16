@@ -96,8 +96,8 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
   // 3rd = loser of the last L-round final, if decided
   const third = useMemo(() => {
     if (!losers.length) return undefined;
-    const maxL = Math.max(...losers.map((m) => m.round));
-    const lf = losers.find((m) => m.round === maxL && m.id.endsWith('M1'));
+    const maxL = Math.max(...losers.map((m: any) => m.round));
+    const lf = losers.find((m: any) => m.round === maxL && m.id.endsWith('M1'));
     if (!lf || !lf.winnerSlot) return undefined;
     const winName = lf.winnerSlot === 'p1' ? lf.p1 ?? '' : lf.p2 ?? '';
     const loseName = lf.winnerSlot === 'p1' ? lf.p2 ?? '' : lf.p1 ?? '';
@@ -317,7 +317,9 @@ function groupByRound(matches: any[], side: 'W' | 'L') {
       map.set(m.round, [...(map.get(m.round) ?? []), m]);
     });
   return map;
-  function Stat({ label, value }: { label: string; value: string }) {
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-slate-800 px-3 py-2">
       <div className="text-xs text-slate-400">{label}</div>
@@ -326,4 +328,3 @@ function groupByRound(matches: any[], side: 'W' | 'L') {
   );
 }
 
-}

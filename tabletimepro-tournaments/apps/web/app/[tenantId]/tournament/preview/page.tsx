@@ -317,4 +317,13 @@ function groupByRound(matches: any[], side: 'W' | 'L') {
       map.set(m.round, [...(map.get(m.round) ?? []), m]);
     });
   return map;
+  function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-slate-800 px-3 py-2">
+      <div className="text-xs text-slate-400">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
 }

@@ -1,16 +1,18 @@
 // apps/web/next.config.mjs
+import { fileURLToPath } from "node:url";
 import path from "node:path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // keep your existing settings:
-  experimental: { externalDir: true }, // important for importing from ../../packages
-
+  experimental: { externalDir: true }, // allow importing from ../../packages
   webpack: (config) => {
-    // point @ttpro/core to our source folder (no package build required)
-    config.resolve.alias['@ttpro/core'] = path.resolve(
+    // Resolve @ttpro/core to the local source (no package build needed)
+    config.resolve.alias["@ttpro/core"] = path.resolve(
       __dirname,
-      '../../packages/core/src'
+      "../../packages/core/src"
     );
     return config;
   },

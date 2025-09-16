@@ -68,6 +68,63 @@ Hank`);
       }),
     [name, format, buybacks, buybackFee, players, entryFee, greenFee, sponsorAdd, templateKey]
   );
+  // ...imports remain...
+const templates = {
+  top3: [0.6, 0.3, 0.1],
+  top4: [0.5, 0.25, 0.15, 0.1],
+  top8: [0.35, 0.22, 0.15, 0.10, 0.06, 0.04, 0.04, 0.04],
+};
+
+type FinalsMode = 'single' | 'double-reset';
+
+// inside component state:
+const [finalsMode, setFinalsMode] = useState<FinalsMode>('single');
+
+// when building stateParam:
+const stateParam = useMemo(
+  () =>
+    encodeState({
+      name,
+      format,
+      buybacks,
+      buybackFee,
+      players,
+      entryFee,
+      greenFee,
+      sponsorAdd,
+      templateKey,
+      finalsMode,        // <-- include this
+    }),
+  [name, format, buybacks, buybackFee, players, entryFee, greenFee, sponsorAdd, templateKey, finalsMode]
+);
+
+// In your form UI, add a Finals Format selector (put it near format/buybacks):
+<div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
+  <div className="font-medium">Finals Format</div>
+  <div className="flex gap-3">
+    <label className="inline-flex items-center gap-2">
+      <input
+        type="radio"
+        name="finalsMode"
+        value="single"
+        checked={finalsMode === 'single'}
+        onChange={() => setFinalsMode('single')}
+      />
+      <span>Single Grand Final (one race)</span>
+    </label>
+    <label className="inline-flex items-center gap-2">
+      <input
+        type="radio"
+        name="finalsMode"
+        value="double-reset"
+        checked={finalsMode === 'double-reset'}
+        onChange={() => setFinalsMode('double-reset')}
+      />
+      <span>True Double Elim (reset if hot seat loses set 1)</span>
+    </label>
+  </div>
+</div>
+
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 space-y-8">

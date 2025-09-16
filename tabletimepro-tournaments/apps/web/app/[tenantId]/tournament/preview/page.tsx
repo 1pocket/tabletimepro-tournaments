@@ -16,6 +16,7 @@ type State = {
   greenFee?: number;
   sponsorAdd?: number;
   templateKey?: 'top3' | 'top4' | 'top8';
+  finalsMode?: 'single' | 'double-reset';
 };
 
 const templates = {
@@ -25,9 +26,15 @@ const templates = {
 };
 
 function decodeState(param: string | null): State {
-  if (!param || typeof window === 'undefined') return { name: 'Tournament', format: 'single', buybacks: false, players: [] };
-  try { const json = decodeURIComponent(atob(decodeURIComponent(param))); return JSON.parse(json); }
-  catch { return { name: 'Tournament', format: 'single', buybacks: false, players: [] }; }
+  if (!param || typeof window === 'undefined') {
+    return { name: 'Tournament', format: 'single', buybacks: false, players: [] };
+  }
+  try {
+    const json = decodeURIComponent(atob(decodeURIComponent(param)));
+    return JSON.parse(json);
+  } catch {
+    return { name: 'Tournament', format: 'single', buybacks: false, players: [] };
+  }
 }
 
 function makeStorageKey(tenantId: string, state: State) {
@@ -48,14 +55,18 @@ export default function PreviewPage({ params }: { params: { tenantId: string } }
   const storageKey = useMemo(() => makeStorageKey(params.tenantId, state), [params.tenantId, state]);
 
   return (
-    <TournamentStoreProvider initial={initial} storageKey={storageKey}>
+    <TournamentStoreProvider
+      initial={initial}
+      storageKey={storageKey}
+      finalsMode={state.finalsMode ?? 'single'}
+    >
       <PageUI state={state} tenantId={params.tenantId} storageKey={storageKey} />
     </TournamentStoreProvider>
   );
 }
 
 function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: string; storageKey: string }) {
-  const { winners, losers, undo, reset, hotSeat, losersWinner, finals, setChampion } = useTournament();
+  const { winners, losers, undo, reset, hotSeat, losersWinner, finals, playGrandFinal } = useTournament();
 
   const winnersByRound = groupByRound(winners, 'W');
   const losersByRound = groupByRound(losers, 'L');
@@ -66,23 +77,30 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
   const greenFee = state.greenFee ?? 5;
   const sponsorAdd = state.sponsorAdd ?? 0;
   const templateKey = state.templateKey ?? 'top4';
-  const payout = useMemo(() => computePayouts({
-    entrants: state.players.length,
-    entryFee, greenFee, sponsorAdd, template: templates[templateKey]
-  }), [state.players.length, entryFee, greenFee, sponsorAdd, templateKey]);
+  const payout = useMemo(
+    () =>
+      computePayouts({
+        entrants: state.players.length,
+        entryFee,
+        greenFee,
+        sponsorAdd,
+        template: templates[templateKey],
+      }),
+    [state.players.length, entryFee, greenFee, sponsorAdd, templateKey]
+  );
 
-  // derive 1st/2nd/3rd names (best-effort)
-  const grandFinalReady = !!hotSeat && !!losersWinner && !finals.champion;
-  const first = finals.champion;
-  const second = finals.runnerUp;
+  const grandFinalReady = !!hotSeat && !!losersWinner && finals.stage !== 'done';
+  const first = finals.stage === 'done' ? finals.champion : undefined;
+  const second = finals.stage === 'done' ? finals.runnerUp : undefined;
+
   // 3rd = loser of the last L-round final, if decided
   const third = useMemo(() => {
     if (!losers.length) return undefined;
-    const maxL = Math.max(...losers.map(m => m.round));
-    const lf = losers.find(m => m.round === maxL && m.id.endsWith('M1'));
+    const maxL = Math.max(...losers.map((m) => m.round));
+    const lf = losers.find((m) => m.round === maxL && m.id.endsWith('M1'));
     if (!lf || !lf.winnerSlot) return undefined;
-    const winName = lf.winnerSlot === 'p1' ? (lf.p1 ?? '') : (lf.p2 ?? '');
-    const loseName = lf.winnerSlot === 'p1' ? (lf.p2 ?? '') : (lf.p1 ?? '');
+    const winName = lf.winnerSlot === 'p1' ? lf.p1 ?? '' : lf.p2 ?? '';
+    const loseName = lf.winnerSlot === 'p1' ? lf.p2 ?? '' : lf.p1 ?? '';
     return winName && loseName ? loseName : undefined;
   }, [losers]);
 
@@ -92,21 +110,29 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold">{state.name}</h1>
           <div className="text-slate-400">{state.format.toUpperCase()} • click a player to advance</div>
-          {hotSeat && state.format === 'double' && !finals.champion && (
+
+          {hotSeat && state.format === 'double' && finals.stage !== 'done' && (
             <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-500/10 text-amber-300 px-3 py-1 text-sm">
               <span>🔥 Hot Seat:</span> <strong className="font-semibold">{hotSeat}</strong>
             </div>
           )}
-          {finals.champion && (
+          {finals.stage === 'done' && finals.champion && (
             <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-emerald-600/10 text-emerald-300 px-3 py-1 text-sm">
               🏆 Champion: <strong className="font-semibold">{finals.champion}</strong>
             </div>
           )}
         </div>
+
         <div className="flex flex-wrap gap-2">
-          <Link href={tvUrl} className="rounded-lg bg-sky-600 px-3 py-2 hover:bg-sky-500">Open TV Display</Link>
-          <button onClick={undo} className="rounded-lg bg-slate-700 px-3 py-2 hover:bg-slate-600">Undo</button>
-          <button onClick={reset} className="rounded-lg bg-red-600 px-3 py-2 hover:bg-red-500">Reset</button>
+          <Link href={tvUrl} className="rounded-lg bg-sky-600 px-3 py-2 hover:bg-sky-500">
+            Open TV Display
+          </Link>
+          <button onClick={undo} className="rounded-lg bg-slate-700 px-3 py-2 hover:bg-slate-600">
+            Undo
+          </button>
+          <button onClick={reset} className="rounded-lg bg-red-600 px-3 py-2 hover:bg-red-500">
+            Reset
+          </button>
         </div>
       </header>
 
@@ -116,7 +142,7 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
           <section>
             <h2 className="text-lg font-semibold mb-3">Winners Bracket</h2>
             <div className="grid gap-4 md:grid-cols-4">
-              {Array.from(winnersByRound.keys()).map((r) => (
+              {Array.from(winnersByRound.keys()).sort((a, b) => a - b).map((r) => (
                 <RoundCol key={`W${r}`} title={`W${r}`} matches={winnersByRound.get(r)!} side="W" />
               ))}
             </div>
@@ -126,27 +152,53 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
             <section>
               <h2 className="text-lg font-semibold mt-2 mb-3">Losers Bracket</h2>
               <div className="grid gap-4 md:grid-cols-6">
-                {Array.from(losersByRound.keys()).map((r) => (
+                {Array.from(losersByRound.keys()).sort((a, b) => a - b).map((r) => (
                   <RoundCol key={`L${r}`} title={`L${r}`} matches={losersByRound.get(r)!} side="L" />
                 ))}
               </div>
             </section>
           )}
 
-          {/* Grand Final card */}
+          {/* Grand Final */}
           {state.format === 'double' && grandFinalReady && (
             <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-              <h3 className="text-lg font-semibold mb-2">Grand Final</h3>
-              <p className="text-slate-300 mb-4">
-                Hot Seat winner faces losers' bracket winner. Click the champion:
-              </p>
-              <div className="grid gap-3 md:grid-cols-2">
-                <GFButton label={hotSeat!} onClick={() => setChampion(hotSeat!, losersWinner!)} />
-                <GFButton label={losersWinner!} onClick={() => setChampion(losersWinner!, hotSeat!)} />
-              </div>
-              <p className="mt-3 text-xs text-slate-500">
-                (If you run a true double final with a reset, we can add the reset flow next.)
-              </p>
+              <h3 className="text-lg font-semibold mb-2">
+                {finals.mode === 'double-reset' && finals.stage === 'reset'
+                  ? 'Grand Final (Reset Match)'
+                  : 'Grand Final'}
+              </h3>
+
+              {finals.mode === 'single' && (
+                <>
+                  <p className="text-slate-300 mb-4">One race for it all. Click the champion:</p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <GFButton label={hotSeat!} onClick={() => playGrandFinal(hotSeat!, losersWinner!)} />
+                    <GFButton label={losersWinner!} onClick={() => playGrandFinal(losersWinner!, hotSeat!)} />
+                  </div>
+                </>
+              )}
+
+              {finals.mode === 'double-reset' && finals.stage === 'pending' && (
+                <>
+                  <p className="text-slate-300 mb-4">
+                    Set 1: If the hot seat (<b>{hotSeat}</b>) wins, they’re champion. If <b>{losersWinner}</b> wins, we reset and play a second set.
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <GFButton label={hotSeat!} onClick={() => playGrandFinal(hotSeat!, losersWinner!)} />
+                    <GFButton label={losersWinner!} onClick={() => playGrandFinal(losersWinner!, hotSeat!)} />
+                  </div>
+                </>
+              )}
+
+              {finals.mode === 'double-reset' && finals.stage === 'reset' && (
+                <>
+                  <p className="text-slate-300 mb-4">Reset Match: winner here is the champion.</p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <GFButton label={hotSeat!} onClick={() => playGrandFinal(hotSeat!, losersWinner!)} />
+                    <GFButton label={losersWinner!} onClick={() => playGrandFinal(losersWinner!, hotSeat!)} />
+                  </div>
+                </>
+              )}
             </section>
           )}
         </div>
@@ -162,19 +214,23 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
 
           <ul className="mt-4 space-y-2">
             {payout.splits.map((s, i) => {
-              const name =
-                i === 0 ? (first ?? '—') :
-                i === 1 ? (second ?? '—') :
-                i === 2 ? (third ?? '—') : '—';
-              const highlight =
-                (i === 0 && first) || (i === 1 && second) || (i === 2 && third);
+              const name = i === 0 ? (first ?? '—') : i === 1 ? (second ?? '—') : i === 2 ? (third ?? '—') : '—';
+              const highlight = (i === 0 && first) || (i === 1 && second) || (i === 2 && third);
               return (
-                <li key={s.place} className={`rounded-lg px-4 py-2 flex items-center justify-between ${highlight ? 'bg-emerald-800/30 ring-1 ring-emerald-500' : 'bg-slate-800'}`}>
+                <li
+                  key={s.place}
+                  className={`rounded-lg px-4 py-2 flex items-center justify-between ${
+                    highlight ? 'bg-emerald-800/30 ring-1 ring-emerald-500' : 'bg-slate-800'
+                  }`}
+                >
                   <div className="flex flex-col">
                     <span className="text-slate-300">Place {s.place}</span>
                     <span className={`text-sm ${highlight ? 'text-emerald-300' : 'text-slate-400'}`}>{name}</span>
                   </div>
-                  <span className="font-semibold">${s.amount.toFixed(2)} <span className="text-slate-400 text-xs">({(s.share*100).toFixed(0)}%)</span></span>
+                  <span className="font-semibold">
+                    ${s.amount.toFixed(2)}{' '}
+                    <span className="text-slate-400 text-xs">({(s.share * 100).toFixed(0)}%)</span>
+                  </span>
                 </li>
               );
             })}
@@ -188,17 +244,21 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
 function GFButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="rounded-xl bg-slate-800 px-4 py-3 hover:bg-slate-700 text-left">
-      <div className="text-sm text-slate-400">Declare Champion</div>
+      <div className="text-sm text-slate-400">Declare Winner</div>
       <div className="text-xl font-semibold">{label}</div>
     </button>
   );
 }
 
-function RoundCol({ title, matches, side }: { title: string; matches: any[]; side: 'W'|'L' }) {
+function RoundCol({ title, matches, side }: { title: string; matches: any[]; side: 'W' | 'L' }) {
   return (
     <div>
       <div className="mb-2 text-slate-300 text-sm">{title}</div>
-      <div className="space-y-3">{matches.map((m) => (<MatchCard key={m.id} side={side} match={m} />))}</div>
+      <div className="space-y-3">
+        {matches.map((m) => (
+          <MatchCard key={m.id} side={side} match={m} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -227,7 +287,17 @@ function MatchCard({ match, side }: { match: any; side: 'W' | 'L' }) {
   );
 }
 
-function Row({ name, onClick, disabled, highlight }: { name: string; onClick?: () => void; disabled?: boolean; highlight?: boolean; }) {
+function Row({
+  name,
+  onClick,
+  disabled,
+  highlight,
+}: {
+  name: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  highlight?: boolean;
+}) {
   const base = 'flex w-full items-center justify-between rounded-lg px-3 py-2';
   const style = disabled ? ' bg-slate-900/40 cursor-default' : ' bg-slate-900/60 hover:bg-slate-900/80';
   const win = highlight ? ' ring-2 ring-emerald-500' : '';
@@ -241,9 +311,10 @@ function Row({ name, onClick, disabled, highlight }: { name: string; onClick?: (
 
 function groupByRound(matches: any[], side: 'W' | 'L') {
   const map = new Map<number, any[]>();
-  matches.filter(m => m.side === side).forEach(m => {
-    map.set(m.round, [...(map.get(m.round) ?? []), m]);
-  });
+  matches
+    .filter((m) => m.side === side)
+    .forEach((m) => {
+      map.set(m.round, [...(map.get(m.round) ?? []), m]);
+    });
   return map;
 }
-

@@ -10,13 +10,22 @@ export type Match = {
 };
 export type Bracket = { type: 'single' | 'double'; winners: Match[]; losers: Match[] };
 
-type Snapshot = { winners: Match[]; losers: Match[] };
+type Finals = {
+  champion?: string;
+  runnerUp?: string;
+};
+
+type Snapshot = { winners: Match[]; losers: Match[]; finals?: Finals };
 
 type Store = {
   winners: Match[];
   losers: Match[];
   type: 'single' | 'double';
+  finals: Finals;
+  hotSeat?: string;
+  losersWinner?: string;
   recordResult: (matchId: string, side: Side, winner: 'p1' | 'p2', opts?: { silent?: boolean }) => void;
+  setChampion: (winner: string, runnerUp: string) => void;
   undo: () => void;
   reset: () => void;
 };
@@ -37,43 +46,61 @@ function dropLoserByPlaceholder(losers: Match[], fromWId: string, loserName: str
 const isBye = (s?: string | null) => !s || /^— bye —$/i.test(s) || /^bye$/i.test(s);
 const isTbd = (s?: string | null) => !!s && /^tbd$/i.test(s);
 
+function pickHotSeat(winners: Match[]): string | undefined {
+  // Winner of the last winners-round match (W{max}-M1) if decided
+  const maxRound = winners.reduce((mx, m) => m.side === 'W' ? Math.max(mx, m.round) : mx, 0);
+  const final = winners.find(m => m.side === 'W' && m.round === maxRound && m.id.endsWith('M1'));
+  if (!final || !final.winnerSlot) return;
+  return final.winnerSlot === 'p1' ? (final.p1 ?? undefined) : (final.p2 ?? undefined);
+}
+
+function pickLosersWinner(losers: Match[]): string | undefined {
+  if (!losers.length) return;
+  const maxRound = losers.reduce((mx, m) => m.side === 'L' ? Math.max(mx, m.round) : mx, 0);
+  const final = losers.find(m => m.side === 'L' && m.round === maxRound && m.id.endsWith('M1'));
+  if (!final || !final.winnerSlot) return;
+  return final.winnerSlot === 'p1' ? (final.p1 ?? undefined) : (final.p2 ?? undefined);
+}
+
 export function TournamentStoreProvider({
   initial, storageKey, children,
 }: { initial: Bracket; storageKey: string; children: React.ReactNode }) {
   const [winners, setWinners] = useState<Match[]>(() => cloneMatches(initial.winners));
   const [losers,  setLosers]  = useState<Match[]>(() => cloneMatches(initial.losers));
+  const [finals,  setFinals]  = useState<Finals>({});
   const undoStack = useRef<Snapshot[]>([]);
   const mounted = useRef(false);
   const autoApplied = useRef(false);
 
-  // persistence
+  // restore
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    // on mount, try restore
     const saved = window.localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed: Snapshot = JSON.parse(saved);
-        setWinners(parsed.winners); setLosers(parsed.losers);
+        if (parsed.winners) setWinners(parsed.winners);
+        if (parsed.losers)  setLosers(parsed.losers);
+        if (parsed.finals)  setFinals(parsed.finals);
       } catch {}
     }
     mounted.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // persist
   useEffect(() => {
     if (!mounted.current || typeof window === 'undefined') return;
-    const payload: Snapshot = { winners, losers };
+    const payload: Snapshot = { winners, losers, finals };
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
-  }, [winners, losers, storageKey]);
+  }, [winners, losers, finals, storageKey]);
 
-  // auto-advance byes once (only if no saved state existed)
+  // auto-advance byes in W1 only (if no saved state existed)
   useEffect(() => {
     if (autoApplied.current) return;
     if (typeof window === 'undefined') return;
     const hadSaved = !!window.localStorage.getItem(storageKey);
     if (hadSaved) { autoApplied.current = true; return; }
-    // run through winners R1 only
     const r1 = winners.filter(m => m.side === 'W' && m.round === 1);
     r1.forEach(m => {
       const p = parseId(m.id); if (!p) return;
@@ -85,12 +112,10 @@ export function TournamentStoreProvider({
   }, [winners]);
 
   const recordResult = (matchId: string, side: Side, winner: 'p1' | 'p2', opts?: { silent?: boolean }) => {
-    const useSet = side === 'W' ? setWinners : setLosers;
     const get = side === 'W' ? winners : losers;
     const other = side === 'W' ? losers : winners;
 
-    // snapshot for undo
-    if (!opts?.silent) undoStack.current.push({ winners: cloneMatches(winners), losers: cloneMatches(losers) });
+    if (!opts?.silent) undoStack.current.push({ winners: cloneMatches(winners), losers: cloneMatches(losers), finals: { ...finals } });
 
     const matches = get.map(m => ({ ...m }));
     const idx = matches.findIndex(m => m.id === matchId);
@@ -101,7 +126,7 @@ export function TournamentStoreProvider({
     const lName = (winner === 'p1' ? m.p2 : m.p1) ?? '';
     if (!wName || isBye(wName) || isTbd(wName)) return;
 
-    // lock the match
+    // lock this match
     m.winnerSlot = winner;
     matches[idx] = m;
 
@@ -110,27 +135,29 @@ export function TournamentStoreProvider({
       const nmId = nextMatchId(parsed.side, parsed.r, parsed.k);
       const slot = targetSlotForNext(parsed.k);
       if (side === 'W') {
-        // place winner to next winners round
         const nextWinners = cloneMatches(winners);
         setSlot(nextWinners, nmId, slot, wName);
-        // drop loser into losers by placeholder
         const nextLosers = cloneMatches(losers);
         if (initial.type === 'double' && lName && !isBye(lName) && !isTbd(lName)) {
           dropLoserByPlaceholder(nextLosers, m.id, lName);
         }
-        // write back
         setWinners(nextWinners.map(mm => (mm.id === m.id ? m : mm)));
         setLosers(nextLosers);
       } else {
-        // losers side: winner advances within L
         const nextLosers = cloneMatches(losers);
         setSlot(nextLosers, nmId, slot, wName);
         setLosers(nextLosers.map(mm => (mm.id === m.id ? m : mm)));
       }
     } else {
-      // write back the locked match
-      useSet(matches);
+      // non-standard id (shouldn't happen here)
+      if (side === 'W') setWinners(matches);
+      else setLosers(matches);
     }
+  };
+
+  const setChampion = (winner: string, runnerUp: string) => {
+    undoStack.current.push({ winners: cloneMatches(winners), losers: cloneMatches(losers), finals: { ...finals } });
+    setFinals({ champion: winner, runnerUp });
   };
 
   const undo = () => {
@@ -138,22 +165,25 @@ export function TournamentStoreProvider({
     if (!snap) return;
     setWinners(cloneMatches(snap.winners));
     setLosers(cloneMatches(snap.losers));
+    setFinals({ ...(snap.finals ?? {}) });
   };
 
   const reset = () => {
     undoStack.current = [];
     setWinners(cloneMatches(initial.winners));
     setLosers(cloneMatches(initial.losers));
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(storageKey);
-    }
-    autoApplied.current = false;
+    setFinals({});
+    if (typeof window !== 'undefined') window.localStorage.removeItem(storageKey);
   };
 
+  const hotSeat = useMemo(() => pickHotSeat(winners), [winners]);
+  const losersWinner = useMemo(() => pickLosersWinner(losers), [losers]);
+
   const value: Store = useMemo(() => ({
-    winners, losers, type: initial.type, recordResult, undo, reset
+    winners, losers, type: initial.type, finals, hotSeat, losersWinner,
+    recordResult, setChampion, undo, reset
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [winners, losers, initial.type]);
+  }), [winners, losers, finals, hotSeat, losersWinner, initial.type]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

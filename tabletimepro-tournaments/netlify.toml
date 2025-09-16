@@ -1,12 +1,10 @@
 [build]
-  # your Next.js app is nested here:
-  base    = "tabletimepro-tournaments/apps/web"
+  base    = "apps/web"
   command = "npm ci || npm install && npm run build"
   publish = ".next"
 
 [build.environment]
   NODE_VERSION = "20"
 
-# Turn on Netlify's Next.js Runtime (handles routing/SSR/ISR)
 [[plugins]]
   package = "@netlify/plugin-nextjs"

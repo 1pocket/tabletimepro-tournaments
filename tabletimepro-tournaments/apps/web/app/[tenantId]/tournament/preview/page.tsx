@@ -1,10 +1,12 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { drawSingleElim, drawDoubleElim, computePayouts } from '@ttpro/core';
 import { TournamentStoreProvider, useTournament } from '@/lib/tournamentStore';
 import Link from 'next/link';
+import { BrandHeader } from '@/components/BrandHeader';
+import { CalcuttaPanel } from '@/components/CalcuttaPanel';
 
 type State = {
   name: string;
@@ -67,6 +69,7 @@ export default function PreviewPage({ params }: { params: { tenantId: string } }
 
 function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: string; storageKey: string }) {
   const { winners, losers, undo, reset, hotSeat, losersWinner, finals, playGrandFinal } = useTournament();
+  const [panel, setPanel] = useState<'payouts' | 'calcutta'>('payouts');
 
   const winnersByRound = groupByRound(winners, 'W');
   const losersByRound = groupByRound(losers, 'L');
@@ -93,7 +96,6 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
   const first = finals.stage === 'done' ? finals.champion : undefined;
   const second = finals.stage === 'done' ? finals.runnerUp : undefined;
 
-  // 3rd = loser of the last L-round final, if decided
   const third = useMemo(() => {
     if (!losers.length) return undefined;
     const maxL = Math.max(...losers.map((m: any) => m.round));
@@ -104,13 +106,21 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
     return winName && loseName ? loseName : undefined;
   }, [losers]);
 
+  const placementsForCalcutta = useMemo(() => {
+    const arr: string[] = [];
+    if (first) arr[0] = first;
+    if (second) arr[1] = second;
+    if (third) arr[2] = third as string;
+    return arr;
+  }, [first, second, third]);
+
   return (
-    <main className="mx-auto max-w-7xl px-6 py-10 space-y-8">
+    <main className="mx-auto max-w-7xl px-6 py-8 space-y-8">
+      <BrandHeader subtitle={state.name} />
+
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold">{state.name}</h1>
           <div className="text-slate-400">{state.format.toUpperCase()} • click a player to advance</div>
-
           {hotSeat && state.format === 'double' && finals.stage !== 'done' && (
             <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-500/10 text-amber-300 px-3 py-1 text-sm">
               <span>🔥 Hot Seat:</span> <strong className="font-semibold">{hotSeat}</strong>
@@ -122,22 +132,15 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
             </div>
           )}
         </div>
-
         <div className="flex flex-wrap gap-2">
-          <Link href={tvUrl} className="rounded-lg bg-sky-600 px-3 py-2 hover:bg-sky-500">
-            Open TV Display
-          </Link>
-          <button onClick={undo} className="rounded-lg bg-slate-700 px-3 py-2 hover:bg-slate-600">
-            Undo
-          </button>
-          <button onClick={reset} className="rounded-lg bg-red-600 px-3 py-2 hover:bg-red-500">
-            Reset
-          </button>
+          <Link href={tvUrl} className="rounded-lg bg-sky-600 px-3 py-2 hover:bg-sky-500">Open TV Display</Link>
+          <button onClick={undo} className="rounded-lg bg-slate-700 px-3 py-2 hover:bg-slate-600">Undo</button>
+          <button onClick={reset} className="rounded-lg bg-red-600 px-3 py-2 hover:bg-red-500">Reset</button>
         </div>
       </header>
 
       {/* Brackets */}
-      <div className="grid lg:grid-cols-[1fr,320px] gap-6">
+      <div className="grid lg:grid-cols-[1fr,360px] gap-6">
         <div className="space-y-8">
           <section>
             <h2 className="text-lg font-semibold mb-3">Winners Bracket</h2>
@@ -203,38 +206,51 @@ function PageUI({ state, tenantId, storageKey }: { state: State; tenantId: strin
           )}
         </div>
 
-        {/* Payout panel */}
-        <aside className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 h-fit sticky top-6">
-          <h2 className="text-lg font-semibold mb-4">Payouts (greens deducted)</h2>
-          <div className="grid grid-cols-3 gap-3">
-            <Stat label="Entry pool" value={`$${payout.entryPool.toFixed(2)}`} />
-            <Stat label="Greens fees" value={`$${payout.greensTotal.toFixed(2)}`} />
-            <Stat label="Payout total" value={`$${payout.payoutTotal.toFixed(2)}`} />
+        {/* Right panel as tabs */}
+        <aside className="rounded-2xl border border-slate-800 bg-slate-900/40 p-2 h-fit sticky top-6">
+          <div className="flex gap-1 p-1">
+            <TabButton active={panel === 'payouts'} onClick={() => setPanel('payouts')}>Entry Payouts</TabButton>
+            <TabButton active={panel === 'calcutta'} onClick={() => setPanel('calcutta')}>Calcutta</TabButton>
           </div>
 
-          <ul className="mt-4 space-y-2">
-            {payout.splits.map((s, i) => {
-              const name = i === 0 ? (first ?? '—') : i === 1 ? (second ?? '—') : i === 2 ? (third ?? '—') : '—';
-              const highlight = (i === 0 && first) || (i === 1 && second) || (i === 2 && third);
-              return (
-                <li
-                  key={s.place}
-                  className={`rounded-lg px-4 py-2 flex items-center justify-between ${
-                    highlight ? 'bg-emerald-800/30 ring-1 ring-emerald-500' : 'bg-slate-800'
-                  }`}
-                >
-                  <div className="flex flex-col">
-                    <span className="text-slate-300">Place {s.place}</span>
-                    <span className={`text-sm ${highlight ? 'text-emerald-300' : 'text-slate-400'}`}>{name}</span>
-                  </div>
-                  <span className="font-semibold">
-                    ${s.amount.toFixed(2)}{' '}
-                    <span className="text-slate-400 text-xs">({(s.share * 100).toFixed(0)}%)</span>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="p-4">
+            {panel === 'payouts' ? (
+              <div>
+                <h2 className="text-lg font-semibold mb-4">Payouts (greens deducted)</h2>
+                <div className="grid grid-cols-3 gap-3">
+                  <Stat label="Entry pool" value={`$${payout.entryPool.toFixed(2)}`} />
+                  <Stat label="Greens fees" value={`$${payout.greensTotal.toFixed(2)}`} />
+                  <Stat label="Payout total" value={`$${payout.payoutTotal.toFixed(2)}`} />
+                </div>
+
+                <ul className="mt-4 space-y-2">
+                  {payout.splits.map((s, i) => {
+                    const name = i === 0 ? (first ?? '—') : i === 1 ? (second ?? '—') : i === 2 ? (third ?? '—') : '—';
+                    const highlight = (i === 0 && first) || (i === 1 && second) || (i === 2 && third);
+                    return (
+                      <li
+                        key={s.place}
+                        className={`rounded-lg px-4 py-2 flex items-center justify-between ${
+                          highlight ? 'bg-emerald-800/30 ring-1 ring-emerald-500' : 'bg-slate-800'
+                        }`}
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-slate-300">Place {s.place}</span>
+                          <span className={`text-sm ${highlight ? 'text-emerald-300' : 'text-slate-400'}`}>{name}</span>
+                        </div>
+                        <span className="font-semibold">
+                          ${s.amount.toFixed(2)}{' '}
+                          <span className="text-slate-400 text-xs">({(s.share * 100).toFixed(0)}%)</span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : (
+              <CalcuttaPanel knownPlacements={placementsForCalcutta} />
+            )}
+          </div>
         </aside>
       </div>
     </main>
@@ -250,10 +266,25 @@ function GFButton({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 rounded-lg px-3 py-2 text-sm ${
+        active ? 'bg-slate-800 ring-1 ring-slate-600' : 'hover:bg-slate-800/60'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function RoundCol({ title, matches, side }: { title: string; matches: any[]; side: 'W' | 'L' }) {
   return (
     <div>
-      <div className="mb-2 text-slate-300 text-sm">{title}</div>
+      <div className="sticky top-0 z-10 backdrop-blur supports-[backdrop-filter]:bg-slate-900/40 bg-slate-900/60 mb-2 text-slate-300 text-sm rounded-md px-2 py-1">
+        {title}
+      </div>
       <div className="space-y-3">
         {matches.map((m) => (
           <MatchCard key={m.id} side={side} match={m} />
@@ -269,8 +300,8 @@ function MatchCard({ match, side }: { match: any; side: 'W' | 'L' }) {
   const locked = !!match.winnerSlot;
 
   return (
-    <div className="rounded-xl bg-slate-800 p-3 space-y-2">
-      <div className="text-xs text-slate-400">{match.id}</div>
+    <div className="rounded-2xl bg-slate-800/80 ring-1 ring-slate-700 p-3 shadow-lg shadow-black/30">
+      <div className="text-[10px] tracking-wider text-slate-400 mb-1">{match.id}</div>
       <Row
         name={match.p1 ?? '— bye —'}
         highlight={match.winnerSlot === 'p1'}
@@ -300,9 +331,9 @@ function Row({
 }) {
   const base = 'flex w-full items-center justify-between rounded-lg px-3 py-2';
   const style = disabled ? ' bg-slate-900/40 cursor-default' : ' bg-slate-900/60 hover:bg-slate-900/80';
-  const win = highlight ? ' ring-2 ring-emerald-500' : '';
+  const win = highlight ? ' ring-2 ring-emerald-500' : ' ring-1 ring-slate-700';
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`${base}${style}${win}`}>
+    <button type="button" onClick={onClick} disabled={disabled} className={`${base}${style} ${win} transition`}>
       <span className={highlight ? 'font-semibold text-emerald-300' : ''}>{name}</span>
       <span className="text-slate-500 text-xs">{disabled && !highlight ? 'vs' : 'advance →'}</span>
     </button>
@@ -327,4 +358,5 @@ function Stat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
 

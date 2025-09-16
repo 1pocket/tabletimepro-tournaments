@@ -3,7 +3,8 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { drawSingleElim, drawDoubleElim } from '@ttpro/core';
-import { TournamentStoreProvider, useTournament } from '@/lib/tournamentStore';
+import { TournamentStoreProvider, useTournament } from '../../../../lib/tournamentStore';
+
 import Link from 'next/link';
 
 type State = {

@@ -1,40 +1,104 @@
-'use client';
-import { useSearchParams } from 'next/navigation';
-import { drawSingleElim } from '@ttpro/core';
-import { useMemo, useState } from 'react';
+"use client";
 
-export default function PreviewBracket() {
+import { useMemo } from "react";
+import { useSearchParams } from "next/navigation";
+import { drawSingleElim, drawDoubleElim } from "@ttpro/core";
+
+type State = {
+  name: string;
+  format: "single" | "double";
+  buybacks: boolean;
+  buybackFee?: number;
+  players: string[];
+};
+
+export default function PreviewPage({ params }: { params: { tenantId: string } }) {
   const sp = useSearchParams();
-  const name = sp.get('name') || 'Tournament';
-  const [playersText, setPlayersText] = useState('Alice\nBob\nCharlie\nDerek\nErin\nFrank\nGina\nHank');
-  const players = useMemo(() => playersText.split(/\n|,/).map(s=>s.trim()).filter(Boolean), [playersText]);
-  const draw = drawSingleElim({ players });
+  const raw = sp.get("state");
+
+  const state = useMemo<State>(() => {
+    if (!raw) return { name: "Tournament", format: "single", buybacks: false, players: [] };
+    try {
+      return JSON.parse(Buffer.from(decodeURIComponent(raw), "base64").toString());
+    } catch {
+      return { name: "Tournament", format: "single", buybacks: false, players: [] };
+    }
+  }, [raw]);
+
+  const bracket = useMemo(() => {
+    const opts = { seed: 42, buybacksEnabled: state.buybacks, buybackFee: state.buybackFee };
+    return state.format === "single"
+      ? drawSingleElim(state.players, opts)
+      : drawDoubleElim(state.players, opts);
+  }, [state]);
+
+  const winnersByRound = groupByRound(bracket.winners, "W");
+  const losersByRound  = groupByRound(bracket.losers, "L");
 
   return (
-    <main className="space-y-6">
-      <h1 className="text-2xl font-semibold">{name} — Bracket Preview</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm text-muted">Players (one per line)</label>
-          <textarea className="px-3 py-2 rounded bg-panel w-full min-h-[200px]"
-                    value={playersText} onChange={e=>setPlayersText(e.target.value)} />
-          <p className="text-xs text-muted mt-1">{draw.bracketSize}-slot bracket • {draw.byes} byes</p>
+    <main className="mx-auto max-w-6xl px-6 py-10 space-y-8">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl md:text-3xl font-semibold">{state.name}</h1>
+        <div className="text-slate-400">
+          {state.format.toUpperCase()} {state.buybacks ? "• Buybacks enabled" : ""}
         </div>
+      </header>
 
-        <div className="rounded bg-panel p-3">
-          <h2 className="text-lg mb-2">Round 1</h2>
-          <ol className="space-y-2">
-            {draw.pairs.map((pair, i) => (
-              <li key={i} className="flex justify-between border-b border-zinc-800 pb-1">
-                <span>{pair.p1 || 'BYE'}</span>
-                <span className="text-muted">vs</span>
-                <span>{pair.p2 || 'BYE'}</span>
-              </li>
+      <section>
+        <h2 className="text-lg font-semibold mb-3">Winners Bracket</h2>
+        <div className="grid gap-4 md:grid-cols-4">
+          {Array.from(winnersByRound.keys()).map((r) => (
+            <RoundCol key={`W${r}`} title={`W${r}`} matches={winnersByRound.get(r)!} />
+          ))}
+        </div>
+      </section>
+
+      {state.format === "double" && (
+        <section>
+          <h2 className="text-lg font-semibold mt-8 mb-3">Losers Bracket</h2>
+          <div className="grid gap-4 md:grid-cols-6">
+            {Array.from(losersByRound.keys()).map((r) => (
+              <RoundCol key={`L${r}`} title={`L${r}`} matches={losersByRound.get(r)!} />
             ))}
-          </ol>
-        </div>
-      </div>
+          </div>
+        </section>
+      )}
     </main>
-  )
+  );
+}
+
+function RoundCol({ title, matches }: { title: string; matches: any[] }) {
+  return (
+    <div>
+      <div className="mb-2 text-slate-300 text-sm">{title}</div>
+      <div className="space-y-3">
+        {matches.map((m) => (
+          <div key={m.id} className="rounded-xl bg-slate-800 p-3 space-y-2">
+            <div className="text-xs text-slate-400">{m.id}</div>
+            <Row name={m.p1 ?? "— bye —"} />
+            <Row name={m.p2 ?? "— bye —"} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Row({ name }: { name: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg bg-slate-900/60 px-3 py-2">
+      <span>{name}</span>
+      <span className="text-slate-500 text-xs">vs</span>
+    </div>
+  );
+}
+
+function groupByRound(matches: any[], side: "W" | "L") {
+  const map = new Map<number, any[]>();
+  matches
+    .filter(m => m.side === side)
+    .forEach(m => {
+      map.set(m.round, [...(map.get(m.round) ?? []), m]);
+    });
+  return map;
 }
